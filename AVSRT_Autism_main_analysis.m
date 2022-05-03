@@ -21,14 +21,13 @@ clear;
 clc;
 
 % Directory
-direc = '.\Data\AVSRT-Autism\';
-subj_info = xlsread([direc,'Subject Info\AVSRT_ID_Sex_Age.xlsx']);
+subj_info = xlsread('.\AVSRT_Autism_subject_info.xlsx');
 
-% Subject groups
-subj_group = {'TD Child','TD Adult','ASD Child','ASD Adult'};
+% Get subject IDs
+id = subj_info(:,1);
+nSubjs = length(id);
 
 % Set parameters
-nSubjs = 411;
 minAge = 6;
 maxAge = 40;
 minIQ = 80;
@@ -42,7 +41,6 @@ minTrials = 20;
 startTrials = 3;
 factor = 3;
 outliers = 'cond';
-testDate = false;
 
 % Preallocate memory
 faRate = zeros(nSubjs,1);
@@ -53,7 +51,6 @@ VHR = zeros(nSubjs,1);
 perLim = zeros(nSubjs,2);
 numRTs = zeros(nSubjs,3);
 lwrISI = zeros(nSubjs,1);
-testYear = zeros(nSubjs,1);
 
 grp_vec = zeros(nSubjs,1);
 sex_vec = zeros(nSubjs,1);
@@ -82,214 +79,181 @@ ados_cell = cell(nSubjs,1);
 
 % Initialize variables
 ctr = 1;
-ids = [];
 allRTs = [];
 fastRTs = [];
 slowRTs = [];
 
 % Process data
-fprintf('Processing data')
+fprintf('Processing data...')
+ 
+% Loop through subjects
+for i = 1:size(id,1)
 
-% Loop through groups
-for i = 1:length(subj_group), fprintf('.')
-    
-    % Get subject IDs
-    id = dir([direc,'Behaviour\',subj_group{i}]); id(1:2) = [];
-    
-    % Define diagnosis group (TD=1, ASD=2)
-    switch subj_group{i}
-        case subj_group(1:2)
-            grp = 1;
-        case subj_group(3:4)
-            grp = 2;
+    % Load data
+    load(['.\data\sub_',num2str(id(i)),'.mat']);
+
+    % Compute some parameters
+    nR2s = nansum(R2s);
+    nBlocks = length(nStims);
+    nTrials = sum(nStims);
+
+    % Compute percentage of fast and slow RTs
+    allRTs = [allRTs;RTs(~isnan(RTs) & RTs<4e3)];
+    fastRTs = [fastRTs;sum(RTs<minRT)/length(~isnan(RTs))*100];
+    slowRTs = [slowRTs;sum(RTs>maxRT)/length(~isnan(RTs))*100];
+
+    % Define previous RTs
+    RTprev = [NaN;RTs(1:end-1)];
+    RTprev(nStims(1:end-1)+1) = NaN;
+
+    % Re-number conditions (AV=1, A=2, V=3)
+    conds = conds-2;
+
+    % Find number of hits
+    noRT = isnan(RTs) | RTs>maxRT;
+    misses = sum(noRT);
+    hits = nTrials-misses;
+    aHits = sum(conds==2 & noRT==0);
+    vHits = sum(conds==3 & noRT==0);
+
+    % Compute precision and recall
+    falarms = sum(nResps)-hits+sum(RTs<minRT);
+    precis = hits./(hits+falarms);
+    recall = hits./(hits+misses);
+
+    % Compute false alarm rate and hit rate
+    faRate(ctr) = falarms/nTrials*100;
+    hitRate(ctr) = hits/nTrials*100;
+    Fscore(ctr) = 2*(precis.*recall)./(precis+recall);
+
+    % Compute A and V hit rates as percentage of each other
+    AHR(ctr) = aHits/vHits*100;
+    VHR(ctr) = vHits/aHits*100;
+
+    % Index first 3 trials of each block (training trials)
+    startTrials = [];
+    endTrials = [0;cumsum(nStims(1:end-1))];
+    for k = 1:nBlocks
+        startTrials = [startTrials;endTrials(k)+(1:startTrials)'];
     end
-    
-    % Loop through subjects
-    for j = 1:size(id,1)
-        
-        % Load data
-        load([direc,'Behaviour\',subj_group{i},'\',id(j).name,'\',...
-            id(j).name,'_rt\',id(j).name,'_RTs.mat'],'RTs','R2s','ISIs',...
-            'tasks','conds','nStims','nResps','nResps2');
-        
-        % Get testing date
-        if testDate == true
-            files = dir(['K:\Data\AVSRT\',subj_group{i},'\',id(j).name,'\*.bdf']);
-            testYear(ctr) = str2double(files(1).date(8:11));
-        end
-        
-        % Compute some parameters
-        nR2s = nansum(R2s);
-        nBlocks = length(nStims);
-        nTrials = sum(nStims);
-        
-        % Compute percentage of fast and slow RTs
-        allRTs = [allRTs;RTs(~isnan(RTs) & RTs<4e3)];
-        fastRTs = [fastRTs;sum(RTs<minRT)/length(~isnan(RTs))*100];
-        slowRTs = [slowRTs;sum(RTs>maxRT)/length(~isnan(RTs))*100];
-        
-        % Define previous RTs
-        RTprev = [NaN;RTs(1:end-1)];
-        RTprev(nStims(1:end-1)+1) = NaN;
-        
-        % Re-number conditions (AV=1, A=2, V=3)
-        conds = conds-2;
-        
-        % Find number of hits
-        noRT = isnan(RTs) | RTs>maxRT;
-        misses = sum(noRT);
-        hits = nTrials-misses;
-        aHits = sum(conds==2 & noRT==0);
-        vHits = sum(conds==3 & noRT==0);
-        
-        % Compute precision and recall
-        falarms = sum(nResps)-hits+sum(RTs<minRT);
-        precis = hits./(hits+falarms);
-        recall = hits./(hits+misses);
-        
-        % Compute false alarm rate and hit rate
-        faRate(ctr) = falarms/nTrials*100;
-        hitRate(ctr) = hits/nTrials*100;
-        Fscore(ctr) = 2*(precis.*recall)./(precis+recall);
-        
-        % Compute A and V hit rates as percentage of each other
-        AHR(ctr) = aHits/vHits*100;
-        VHR(ctr) = vHits/aHits*100;
-        
-        % Index first 3 trials of each block (training trials)
-        startTrials = [];
-        endTrials = [0;cumsum(nStims(1:end-1))];
-        for k = 1:nBlocks
-            startTrials = [startTrials;endTrials(k)+(1:startTrials)'];
-        end
-        
-        % Index bad trials (misses, double-presses, fast/slow RTs, training)
-        badRTs = unique([find(isnan(RTs));find(RTs<minRT|RTs>maxRT);...
-            find(R2s==true);find(ISIs<minISI|ISIs>maxISI);startTrials]);
-        
-        % Find bad previous trials
-        badprevRTs = badRTs(badRTs<length(RTs))+1;
-        RTprev(badprevRTs) = NaN;
-        
-        % Get rid of bad trials
-        RTs(badRTs) = []; %#ok<*SAGROW>
-        RTprev(badRTs) = [];
-        ISIs(badRTs) = [];
-        tasks(badRTs) = [];
-        conds(badRTs) = [];
-        clear badRTs badprevRTs
-        
-        % Get raw data for example subject
-        if strcmp(id(j).name,'12161')
-            spcloneRTs = RTs;
-            spcloneConds = conds;
-        end
-        
-        % Use middle 95th percentile of RTs
-        switch outliers
-            case 'cond'
-                perCond = zeros(3,2);
-                idxConds = cell(1,3);
-                for k = 1:3
-                    idxConds{k} = find(conds==k);
-                    perCond(k,:) = prctile(RTs(conds==k),[minPer,maxPer]);
-                    badRTs{k} = idxConds{k}(RTs(conds==k)<perCond(k,1) | RTs(conds==k)>perCond(k,2));
-                end
-                perLim(ctr,:) = [min(perCond(:,1)),max(perCond(:,2))];
-                badRTs = cell2mat(badRTs(:));
-            case 'all'
-                perLim(ctr,:) = prctile(RTs,[minPer,maxPer]);
-                badRTs = find(RTs<perLim(ctr,1) | RTs>perLim(ctr,2));
-        end
-        
-        % Find bad previous trials
-        badprevRTs = badRTs(badRTs<length(RTs))+1;
-        RTprev(badprevRTs) = NaN;
-        
-        % Get rid of bad trials
-        RTs(badRTs) = [];
-        RTprev(badRTs) = [];
-        ISIs(badRTs) = [];
-        tasks(badRTs) = [];
-        conds(badRTs) = [];
-        
-        % Compute # of RTs per condition
-        for k = 1:3
-            numRTs(ctr,k) = sum(conds==k);
-        end
-        
-        % Compute average ISI
-        lwrISI(ctr) = nanmin(ISIs);
-        
-        % Get subject sex and age
-        sex = subj_info((subj_info(:,1)==str2double(id(j).name)),3);
-        age = subj_info((subj_info(:,1)==str2double(id(j).name)),4);
-        piq = max(subj_info((subj_info(:,1)==str2double(id(j).name)),5));
-        viq = subj_info((subj_info(:,1)==str2double(id(j).name)),6);
-        fsiq = subj_info((subj_info(:,1)==str2double(id(j).name)),7);
-        ados = subj_info((subj_info(:,1)==str2double(id(j).name)),8);
-        
-        % Define developmental group (6-9=1, 10-12=2, 13-17=3, 18-40=4)
-        if age>=minAge && age<10
-            dev = 1;
-        elseif age>=10 && age<13
-            dev = 2;
-        elseif age>=13 && age<18
-            dev = 3;
-        elseif age>=18 && age<maxAge
-            dev = 4;
-        else
-            dev = NaN;
-        end
-        
-        % Define task type (swtich=1, repeat=2, neither=NaN)
-        type = tasks;
-        type(tasks==2|tasks==3|tasks==6|tasks==8) = 1;
-        type(tasks==1|tasks==5|tasks==9) = 2;
-        type(tasks==4|tasks==7) = NaN;
-        
-        % Store data in vectors
-        sex_vec(ctr) = sex;
-        grp_vec(ctr) = grp;
-        dev_vec(ctr) = dev;
-        age_vec(ctr) = age;
-        piq_vec(ctr) = piq;
-        viq_vec(ctr) = viq;
-        fsiq_vec(ctr) = fsiq;
-        ados_vec(ctr) = ados;
-        
-        % Store data in cell arrays
-        RT_cell{ctr} = RTs;
-        RTprev_cell{ctr} = RTprev;
-        ISI_cell{ctr} = ISIs;
-        cond_cell{ctr} = conds;
-        task_cell{ctr} = tasks;
-        type_cell{ctr} = type;
-        subj_cell{ctr} = ctr*ones(size(RTs));
-        grp_cell{ctr} = grp*ones(size(RTs));
-        sex_cell{ctr} = sex*ones(size(RTs));
-        age_cell{ctr} = age*ones(size(RTs));
-        dev_cell{ctr} = dev*ones(size(RTs));
-        piq_cell{ctr} = piq*ones(size(RTs));
-        viq_cell{ctr} = viq*ones(size(RTs));
-        fsiq_cell{ctr} = fsiq*ones(size(RTs));
-        ados_cell{ctr} = ados*ones(size(RTs));
-        
-        % Increment counter
-        ctr = ctr+1;
-        
-        clear RTs RTprev ISIs R2s badRTs
-        clear conds tasks type trials
-        clear nStims nResps nResps2
-        clear sex age dev piq viq fsiq ados
-        
+
+    % Index bad trials (misses, double-presses, fast/slow RTs, training)
+    badRTs = unique([find(isnan(RTs));find(RTs<minRT|RTs>maxRT);...
+        find(R2s==true);find(ISIs<minISI|ISIs>maxISI);startTrials]);
+
+    % Find bad previous trials
+    badprevRTs = badRTs(badRTs<length(RTs))+1;
+    RTprev(badprevRTs) = NaN;
+
+    % Get rid of bad trials
+    RTs(badRTs) = []; %#ok<*SAGROW>
+    RTprev(badRTs) = [];
+    ISIs(badRTs) = [];
+    tasks(badRTs) = [];
+    conds(badRTs) = [];
+    clear badRTs badprevRTs
+
+    % Use middle 95th percentile of RTs
+    switch outliers
+        case 'cond'
+            perCond = zeros(3,2);
+            idxConds = cell(1,3);
+            for k = 1:3
+                idxConds{k} = find(conds==k);
+                perCond(k,:) = prctile(RTs(conds==k),[minPer,maxPer]);
+                badRTs{k} = idxConds{k}(RTs(conds==k)<perCond(k,1) | RTs(conds==k)>perCond(k,2));
+            end
+            perLim(ctr,:) = [min(perCond(:,1)),max(perCond(:,2))];
+            badRTs = cell2mat(badRTs(:));
+        case 'all'
+            perLim(ctr,:) = prctile(RTs,[minPer,maxPer]);
+            badRTs = find(RTs<perLim(ctr,1) | RTs>perLim(ctr,2));
     end
-    
-    ids = [ids;id];
-    clear id group
-    
+
+    % Find bad previous trials
+    badprevRTs = badRTs(badRTs<length(RTs))+1;
+    RTprev(badprevRTs) = NaN;
+
+    % Get rid of bad trials
+    RTs(badRTs) = [];
+    RTprev(badRTs) = [];
+    ISIs(badRTs) = [];
+    tasks(badRTs) = [];
+    conds(badRTs) = [];
+
+    % Compute # of RTs per condition
+    for k = 1:3
+        numRTs(ctr,k) = sum(conds==k);
+    end
+
+    % Compute average ISI
+    lwrISI(ctr) = nanmin(ISIs);
+
+    % Get subject group(NT=1, ASD=2), sex(M=1, F=2) and age
+    grp = subj_info((subj_info(:,1)==id(i)),2);
+    sex = subj_info((subj_info(:,1)==id(i)),3);
+    age = subj_info((subj_info(:,1)==id(i)),4);
+    piq = subj_info((subj_info(:,1)==id(i)),5);
+    viq = subj_info((subj_info(:,1)==id(i)),6);
+    fsiq = subj_info((subj_info(:,1)==id(i)),7);
+    ados = subj_info((subj_info(:,1)==id(i)),8);
+
+    % Define developmental group (6-9=1, 10-12=2, 13-17=3, 18-40=4)
+    if age>=minAge && age<10
+        dev = 1;
+    elseif age>=10 && age<13
+        dev = 2;
+    elseif age>=13 && age<18
+        dev = 3;
+    elseif age>=18 && age<maxAge
+        dev = 4;
+    else
+        dev = NaN;
+    end
+
+    % Define task type (swtich=1, repeat=2, neither=NaN)
+    type = tasks;
+    type(tasks==2|tasks==3|tasks==6|tasks==8) = 1;
+    type(tasks==1|tasks==5|tasks==9) = 2;
+    type(tasks==4|tasks==7) = NaN;
+
+    % Store data in vectors
+    sex_vec(ctr) = sex;
+    grp_vec(ctr) = grp;
+    dev_vec(ctr) = dev;
+    age_vec(ctr) = age;
+    piq_vec(ctr) = piq;
+    viq_vec(ctr) = viq;
+    fsiq_vec(ctr) = fsiq;
+    ados_vec(ctr) = ados;
+
+    % Store data in cell arrays
+    RT_cell{ctr} = RTs;
+    RTprev_cell{ctr} = RTprev;
+    ISI_cell{ctr} = ISIs;
+    cond_cell{ctr} = conds;
+    task_cell{ctr} = tasks;
+    type_cell{ctr} = type;
+    subj_cell{ctr} = ctr*ones(size(RTs));
+    grp_cell{ctr} = grp*ones(size(RTs));
+    sex_cell{ctr} = sex*ones(size(RTs));
+    age_cell{ctr} = age*ones(size(RTs));
+    dev_cell{ctr} = dev*ones(size(RTs));
+    piq_cell{ctr} = piq*ones(size(RTs));
+    viq_cell{ctr} = viq*ones(size(RTs));
+    fsiq_cell{ctr} = fsiq*ones(size(RTs));
+    ados_cell{ctr} = ados*ones(size(RTs));
+
+    % Increment counter
+    ctr = ctr+1;
+
+    clear RTs RTprev ISIs R2s badRTs
+    clear conds tasks type trials
+    clear nStims nResps nResps2
+    clear sex age dev piq viq fsiq ados
+
 end
-
+    
 % Update number of subjects
 nSubjs = ctr-1;
 
@@ -304,7 +268,7 @@ fprintf('\n\nBad subjects:\n')
 % Identify subjects too young/old
 badIDs = isnan(age_vec) | age_vec<minAge | age_vec>maxAge;
 for i = find(badIDs)'
-    fprintf('%s - Age: %.1f yrs\n',ids(i).name,age_vec(i))
+    fprintf('%d - Age: %.1f yrs\n',id(i),age_vec(i))
 end
 idx = badIDs;
 
@@ -312,7 +276,7 @@ idx = badIDs;
 tmp = piq_vec; tmp(idx) = NaN;
 badIDs = tmp<minIQ | (isnan(piq_vec) & grp_vec==2 & dev_vec~=4);
 for i = find(badIDs)'
-    fprintf('%s - PIQ: %d\n',ids(i).name,piq_vec(i))
+    fprintf('%d - PIQ: %d\n',id(i),piq_vec(i))
 end
 idx = idx | badIDs; clear tmp
 
@@ -321,7 +285,7 @@ tmp = faRate; tmp(idx) = NaN;
 thr = nanmean(tmp)+factor*nanstd(tmp);
 badIDs = tmp>thr;
 for i = find(badIDs)'
-    fprintf('%s - FA: %.0f%%\n',ids(i).name,faRate(i))
+    fprintf('%d - FA: %.0f%%\n',id(i),faRate(i))
 end
 idx = idx | badIDs; clear tmp thr
 
@@ -330,7 +294,7 @@ tmp = Fscore; tmp(idx) = NaN;
 thr = nanmean(tmp)-factor*nanstd(tmp);
 badIDs = tmp<thr;
 for i = find(badIDs)'
-    fprintf('%s - F1: %.2f\n',ids(i).name,Fscore(i))
+    fprintf('%d - F1: %.2f\n',id(i),Fscore(i))
 end
 idx = idx | badIDs; clear tmp thr
 
@@ -340,7 +304,7 @@ tmp(tmp>1000) = NaN;
 thr = nanmean(tmp)-factor*nanstd(tmp);
 badIDs = tmp<thr;
 for i = find(badIDs)'
-    fprintf('%s - V-HR: %.0f%%\n',ids(i).name,VHR(i))
+    fprintf('%d - V-HR: %.0f%%\n',id(i),VHR(i))
 end
 idx = idx | badIDs; clear tmp thr
 
@@ -350,7 +314,7 @@ tmp(tmp>1000) = NaN;
 thr = nanmean(tmp)-factor*nanstd(tmp);
 badIDs = tmp<thr;
 for i = find(badIDs)'
-    fprintf('%s - A-HR: %.0f%%\n',ids(i).name,AHR(i))
+    fprintf('%d - A-HR: %.0f%%\n',id(i),AHR(i))
 end
 idx = idx | badIDs; clear tmp thr
 
@@ -358,7 +322,7 @@ idx = idx | badIDs; clear tmp thr
 tmp = numRTs; tmp(idx,:) = NaN;
 badIDs = min(tmp,[],2)<minTrials;
 for i = find(badIDs)'
-    fprintf('%s - #RTs: %d, %d, %d\n',ids(i).name,numRTs(i,:)<minTrials)
+    fprintf('%d - #RTs: %d, %d, %d\n',id(i),numRTs(i,:)<minTrials)
 end
 idx = idx | badIDs; clear tmp thr
 
@@ -366,7 +330,7 @@ idx = idx | badIDs; clear tmp thr
 tmp = lwrISI; tmp(idx,:) = NaN;
 badIDs = tmp>2e3;
 for i = find(badIDs)'
-    fprintf('%s - Min ISI: %.0f ms\n',ids(i).name,lwrISI(i))
+    fprintf('%d - Min ISI: %.0f ms\n',id(i),lwrISI(i))
 end
 idx = idx | badIDs; clear tmp thr badIDs
 
@@ -375,7 +339,7 @@ nBad = sum(idx)-length(ctr:nSubjs);
 fprintf('Subjects rejected: %d/%d (%.1f%%)\n',nBad,nSubjs,nBad/nSubjs*100)
 
 % Get rid of bad subjects
-ids(idx) = [];
+id(idx) = [];
 grp_vec(idx) = [];
 sex_vec(idx) = [];
 age_vec(idx) = [];
@@ -393,7 +357,6 @@ numRTs(idx,:) = [];
 fastRTs(idx) = [];
 slowRTs(idx) = [];
 perLim(idx,:) = [];
-testYear(idx) = [];
 lwrISI(idx) = [];
 
 subj_cell(idx) = [];
@@ -413,8 +376,8 @@ type_cell(idx) = [];
 cond_cell(idx) = [];
 
 % Update number of subjects
-nSubjs = length(ids);
-exSub = find(strcmp({ids.name},'12161'));
+nSubjs = length(id);
+exSub = find(id==186);
 
 %% Plot results of outlier correction procedure
 
@@ -451,7 +414,7 @@ subplot(2,3,5:6), histogram(Fscore,20), title('After'), xlim([0,1])
 clc;
 
 % Total number of subjects
-fprintf('Number of subjects: %d (%d F)\n',length(ids),sum(sex_vec==2));
+fprintf('Number of subjects: %d (%d F)\n',length(id),sum(sex_vec==2));
 fprintf('Number of NTs: %d (%d F)\n',sum(grp_vec==1),sum(grp_vec==1 & sex_vec==2));
 fprintf('Number of ASDs: %d (%d F)\n',sum(grp_vec==2),sum(grp_vec==2 & sex_vec==2));
 
@@ -692,7 +655,7 @@ end
 
 %% Compute CDFs and RMV
 
-nConds = 4;
+nConds = 3;
 nConds2 = 11;
 nTasks = 8;
 test = 'ver';
@@ -709,7 +672,7 @@ RTs = cell(nSubjs,nConds,nTasks);
 % Separate RTs by condition and trial type
 for i = 1:nSubjs
     RTper(i,:) = linspace(perLim(i,1),perLim(i,2),numel(prob));
-    for j = 1:3
+    for j = 1:nConds
         RTs{i,j,1} = RT_cell{i}(cond_cell{i}==j); % 1. mix
         RTs{i,j,2} = RT_cell{i}((task_cell{i}==1 | task_cell{i}==5 | task_cell{i}==9) & cond_cell{i}==j); % 2. repeat
         RTs{i,j,3} = RT_cell{i}((task_cell{i}==2 | task_cell{i}==3 | task_cell{i}==6 | task_cell{i}==8) & cond_cell{i}==j); % 3. switch
@@ -724,26 +687,6 @@ for i = 1:nSubjs
         RTs{i,j,12} = RT_cell{i}((task_cell{i}==2 | task_cell{i}==3 | task_cell{i}==6 | task_cell{i}==8) & cond_cell{i}==j & ISI_cell{i}>2500); % 12. switch slow ISI
         RTs{i,j,13} = RT_cell{i}(cond_cell{i}==j & ISI_cell{i}>2500); % 13. mix slow ISI
     end
-end
-
-% Simulate race distribution by randomly sampling from A & V RTs
-% simultaneously and taking minimum value
-for i = 1:nSubjs
-    
-    RTs{i,4,1} = min([RTs{i,2,1}(randi(length(RTs{i,2,1}),nSamps,1)),RTs{i,3,1}(randi(length(RTs{i,3,1}),nSamps,1))],[],2);
-    RTs{i,4,2} = min([RTs{i,2,2}(randi(length(RTs{i,2,2}),nSamps,1)),RTs{i,3,2}(randi(length(RTs{i,3,2}),nSamps,1))],[],2);
-    RTs{i,4,3} = min([RTs{i,2,3}(randi(length(RTs{i,2,3}),nSamps,1)),RTs{i,3,3}(randi(length(RTs{i,3,3}),nSamps,1))],[],2);
-    RTs{i,4,4} = min([RTs{i,2,4}(randi(length(RTs{i,2,4}),nSamps,1)),RTs{i,3,4}(randi(length(RTs{i,3,4}),nSamps,1))],[],2);
-    RTs{i,4,5} = min([RTs{i,2,5}(randi(length(RTs{i,2,5}),nSamps,1)),RTs{i,3,5}(randi(length(RTs{i,3,5}),nSamps,1))],[],2);
-    RTs{i,4,6} = min([RTs{i,2,6}(randi(length(RTs{i,2,6}),nSamps,1)),RTs{i,3,6}(randi(length(RTs{i,3,6}),nSamps,1))],[],2);
-    RTs{i,4,7} = min([RTs{i,2,7}(randi(length(RTs{i,2,7}),nSamps,1)),RTs{i,3,7}(randi(length(RTs{i,3,7}),nSamps,1))],[],2);
-    RTs{i,4,8} = min([RTs{i,2,8}(randi(length(RTs{i,2,8}),nSamps,1)),RTs{i,3,8}(randi(length(RTs{i,3,8}),nSamps,1))],[],2);
-    %     RTs{i,4,9} = min([RTs{i,2,9}(randi(length(RTs{i,2,9}),nSamps,1)),RTs{i,3,9}(randi(length(RTs{i,3,9}),nSamps,1))],[],2);
-    %     RTs{i,4,10} = min([RTs{i,2,10}(randi(length(RTs{i,2,10}),nSamps,1)),RTs{i,3,10}(randi(length(RTs{i,3,10}),nSamps,1))],[],2);
-    %     RTs{i,4,11} = min([RTs{i,2,11}(randi(length(RTs{i,2,11}),nSamps,1)),RTs{i,3,11}(randi(length(RTs{i,3,11}),nSamps,1))],[],2);
-    %     RTs{i,4,12} = min([RTs{i,2,12}(randi(length(RTs{i,2,12}),nSamps,1)),RTs{i,3,12}(randi(length(RTs{i,3,12}),nSamps,1))],[],2);
-    %     RTs{i,4,13} = min([RTs{i,2,13}(randi(length(RTs{i,2,13}),nSamps,1)),RTs{i,3,13}(randi(length(RTs{i,3,13}),nSamps,1))],[],2);
-    
 end
 
 % Compute CDFs for each subject, condition, trial type
